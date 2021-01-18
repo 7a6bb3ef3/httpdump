@@ -145,7 +145,7 @@ func filterNet(ctx *cli.Context, net, transport gopacket.Flow) bool {
 		return false
 	}
 	srcip := ctx.String("src.ip")
-	if srcip != "" && netsrc.String() != dstip {
+	if srcip != "" && netsrc.String() != srcip {
 		return false
 	}
 
