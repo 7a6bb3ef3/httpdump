@@ -11,6 +11,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"net/http"
 	"net/http/httputil"
+	"regexp"
 	"strconv"
 	"time"
 )
@@ -53,26 +54,29 @@ func CapHTTP(ctx *cli.Context) error {
 
 // httpStreamFactory implements tcpassembly.StreamFactory
 type HTTPStreamFactory struct {
-	ctx *cli.Context
+	ctx        *cli.Context
+	httpFilter *HTTPFilter
 }
 
 func NewHTTPStreamFactory(ctx *cli.Context) *HTTPStreamFactory {
-	return &HTTPStreamFactory{ctx: ctx}
+	return &HTTPStreamFactory{
+		ctx:        ctx,
+		httpFilter: NewHTTPFilter(ctx),
+	}
 }
 
 func (h *HTTPStreamFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
 	rs := tcpreader.NewReaderStream()
-	go Handle(h.ctx, net, transport, &rs)
+	if NetworkFilter(h.ctx, net, transport) {
+		go Handle(h.httpFilter, net, transport, &rs)
+	}
 	return &rs
 }
 
-func Handle(ctx *cli.Context, net, transport gopacket.Flow, stream *tcpreader.ReaderStream) {
+func Handle(f *HTTPFilter, net, transport gopacket.Flow, stream *tcpreader.ReaderStream) {
 	defer tcpreader.DiscardBytesToEOF(stream)
 
 	logrus.Debugf("%s:%s -> %s:%s", net.Src().String(), transport.Src().String(), net.Dst().String(), transport.Dst().String())
-	if !NetworkFilter(ctx, net, transport) {
-		return
-	}
 
 	for {
 		i, stat, e := CapHTTPFromStream(stream)
@@ -88,10 +92,10 @@ func Handle(ctx *cli.Context, net, transport gopacket.Flow, stream *tcpreader.Re
 				logrus.Debug("Assert: i.(*http.Request) failed")
 				return
 			}
-			if !HTTPFilter(ctx, req, nil) {
+			if !f.FilterRequest(req) {
 				continue
 			}
-			dumpdata, e = DumpReq(ctx, req)
+			dumpdata, e = DumpReq(f.IgnoreBody, req)
 			if e != nil {
 				logrus.Debugf("DumpReq: %s", e.Error())
 				return
@@ -102,10 +106,10 @@ func Handle(ctx *cli.Context, net, transport gopacket.Flow, stream *tcpreader.Re
 				logrus.Debug("Assert: i.(*http.Request) failed")
 				return
 			}
-			if !HTTPFilter(ctx, nil, resp) {
+			if !f.FilterResponse(resp) {
 				continue
 			}
-			dumpdata, e = DumpResp(ctx, resp)
+			dumpdata, e = DumpResp(f.IgnoreBody, resp)
 			if e != nil {
 				logrus.Debugf("DumpResp: %s", e.Error())
 				return
@@ -114,7 +118,10 @@ func Handle(ctx *cli.Context, net, transport gopacket.Flow, stream *tcpreader.Re
 			logrus.Debug("Neither stat.Request nor stat.Response")
 			return
 		}
-		PrintDump(net, transport, dumpdata)
+
+		if f.Regexp(dumpdata) {
+			PrintDump(net, transport, dumpdata)
+		}
 	}
 }
 
@@ -122,16 +129,16 @@ func PrintDump(net, transport gopacket.Flow, dumpBytes []byte) {
 	fmt.Printf("%s:%s -> %s:%s\n%s\n\n", net.Src().String(), transport.Src().String(), net.Dst().String(), transport.Dst().String(), string(dumpBytes))
 }
 
-func DumpResp(ctx *cli.Context, resp *http.Response) ([]byte, error) {
-	b, e := httputil.DumpResponse(resp, !ctx.Bool("i"))
+func DumpResp(ignore bool, resp *http.Response) ([]byte, error) {
+	b, e := httputil.DumpResponse(resp, ignore)
 	if e != nil {
 		return nil, e
 	}
 	return b, nil
 }
 
-func DumpReq(ctx *cli.Context, req *http.Request) ([]byte, error) {
-	b, e := httputil.DumpRequest(req, !ctx.Bool("i"))
+func DumpReq(ignore bool, req *http.Request) ([]byte, error) {
+	b, e := httputil.DumpRequest(req, !ignore)
 	if e != nil {
 		return nil, e
 	}
@@ -167,28 +174,64 @@ func NetworkFilter(ctx *cli.Context, net, transport gopacket.Flow) bool {
 	return true
 }
 
-func HTTPFilter(ctx *cli.Context, req *http.Request, resp *http.Response) bool {
-	if req != nil && ( ctx.Bool("resp") || ctx.Int("status") != 0 ){
+type HTTPFilter struct {
+	StatusCode   int
+	Method       string
+	RequestOnly  bool
+	ResponseOnly bool
+	IgnoreBody   bool
+	reg          *regexp.Regexp
+}
+
+func NewHTTPFilter(ctx *cli.Context) *HTTPFilter {
+	var reg *regexp.Regexp
+	if r := ctx.String("regexp"); r != "" {
+		reg = regexp.MustCompile(r)
+	}
+	return &HTTPFilter{
+		StatusCode:   ctx.Int("status"),
+		Method:       ctx.String("method"),
+		RequestOnly:  ctx.Bool("req"),
+		ResponseOnly: ctx.Bool("resp"),
+		IgnoreBody:   ctx.Bool("ignoreBody"),
+		reg:          reg,
+	}
+}
+
+func (f *HTTPFilter) Regexp(dump []byte) bool {
+	if f.reg == nil {
+		return true
+	}
+
+	return f.reg.Match(dump)
+}
+
+func (f *HTTPFilter) FilterRequest(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	if f.ResponseOnly || f.StatusCode != 0 {
 		logrus.Debugf("Drop packet: mismatched packet type: request")
 		return false
 	}
+	if f.Method != "" && f.Method != req.Method {
+		logrus.Debugf("Drop packet: mismatched request method ,expected: %s ,got: %s", f.Method, req.Method)
+		return false
+	}
+	return true
+}
 
-	if resp != nil && ( ctx.Bool("req") || ctx.String("method") != "") {
+func (f *HTTPFilter) FilterResponse(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	if f.RequestOnly || f.Method != "" {
 		logrus.Debugf("Drop packet: mismatched packet type: response")
 		return false
 	}
-
-	reqMethod := ctx.String("method")
-	if req != nil && reqMethod != "" && reqMethod != req.Method {
-		logrus.Debugf("Drop packet: mismatched request method ,expected: %s ,got: %s", reqMethod, req.Method)
+	if f.StatusCode != 0 && f.StatusCode != resp.StatusCode {
+		logrus.Debugf("Drop packet: mismatched response status ,expected: %d ,got: %d", f.StatusCode, resp.StatusCode)
 		return false
 	}
-
-	respCode := ctx.Int("status")
-	if resp != nil && respCode != 0 && respCode != resp.StatusCode {
-		logrus.Debugf("Drop packet: mismatched response status ,expected: %d ,got: %d", respCode, resp.StatusCode)
-		return false
-	}
-
 	return true
 }

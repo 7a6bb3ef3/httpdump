@@ -5,6 +5,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"os"
+	"regexp"
 )
 
 func main() {
@@ -14,7 +15,15 @@ func main() {
 	app.UsageText = "httpdump [command] [options]"
 	app.Usage = ":D"
 	app.Before = func(ctx *cli.Context) error {
-		logrus.SetLevel(logrus.ErrorLevel)
+		// valid regexp
+		reg := ctx.String("regexp")
+		if reg != "" {
+			_, e := regexp.Compile(reg)
+			if e != nil {
+				return fmt.Errorf("regexp.Compile: %w", e)
+			}
+		}
+
 		return nil
 	}
 	app.Commands = []*cli.Command{
@@ -32,7 +41,7 @@ func main() {
 		},
 		{
 			Name:   "cap",
-			Usage:  "Capture data",
+			Usage:  "Capture",
 			Action: CapHTTP,
 			Flags: []cli.Flag{
 				&cli.StringFlag{
@@ -77,6 +86,11 @@ func main() {
 					Name:    "ignoreBody",
 					Aliases: []string{"i"},
 					Usage:   "Do not print response/request body",
+				},
+				&cli.StringFlag{
+					Name:    "regexp",
+					Aliases: []string{"R"},
+					Usage:   "Regexp(Go) filter",
 				},
 				&cli.BoolFlag{
 					Name:    "request",

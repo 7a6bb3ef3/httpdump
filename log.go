@@ -8,7 +8,7 @@ import (
 
 func init() {
 	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.DebugLevel)
+	logrus.SetLevel(logrus.ErrorLevel)
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: time.RFC3339,

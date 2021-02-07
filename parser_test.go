@@ -32,7 +32,6 @@ var respHeader = "HTTP/1.1 301 Moved Permanently\r\n" +
 	"Connection: Keep-Alive\r\n\r\n" +
 	"licenseID=string&content=string&/paramsXML=string"
 
-
 var chunked = "HTTP/1.1 200 OK\r\n" +
 	"Transfer-Encoding: chunked\r\n" +
 	"Content-Type: text/html; charset=UTF-8\r\n" +
@@ -102,9 +101,8 @@ func TestReadBytes(t *testing.T) {
 	t.Log(w.String())
 }
 
-
-func TestParseInt(t *testing.T){
-	i ,e := strconv.ParseInt("1ec1" ,16 ,64)
+func TestParseInt(t *testing.T) {
+	i, e := strconv.ParseInt("1ec1", 16, 64)
 	if e != nil {
 		t.Fatal(e)
 	}
