@@ -74,46 +74,48 @@ func Handle(ctx *cli.Context, net, transport gopacket.Flow, stream *tcpreader.Re
 		return
 	}
 
-	i, stat, e := CapHTTPFromStream(stream)
-	if e != nil {
-		logrus.Debugf("CapHTTPFromStream: %s", e.Error())
-		return
-	}
+	for {
+		i, stat, e := CapHTTPFromStream(stream)
+		if e != nil {
+			logrus.Debugf("CapHTTPFromStream: %s", e.Error())
+			return
+		}
 
-	var dumpdata []byte
-	if stat.Request {
-		req, ok := i.(*http.Request)
-		if !ok {
-			logrus.Debug("Assert: i.(*http.Request) failed")
+		var dumpdata []byte
+		if stat.Request {
+			req, ok := i.(*http.Request)
+			if !ok {
+				logrus.Debug("Assert: i.(*http.Request) failed")
+				return
+			}
+			if !HTTPFilter(ctx, req, nil) {
+				continue
+			}
+			dumpdata, e = DumpReq(ctx, req)
+			if e != nil {
+				logrus.Debugf("DumpReq: %s", e.Error())
+				return
+			}
+		} else if stat.Response {
+			resp, ok := i.(*http.Response)
+			if !ok {
+				logrus.Debug("Assert: i.(*http.Request) failed")
+				return
+			}
+			if !HTTPFilter(ctx, nil, resp) {
+				continue
+			}
+			dumpdata, e = DumpResp(ctx, resp)
+			if e != nil {
+				logrus.Debugf("DumpResp: %s", e.Error())
+				return
+			}
+		} else {
+			logrus.Debug("Neither stat.Request nor stat.Response")
 			return
 		}
-		if !HTTPFilter(ctx, req, nil) {
-			return
-		}
-		dumpdata, e = DumpReq(ctx, req)
-		if e != nil {
-			logrus.Debugf("DumpReq: %s", e.Error())
-			return
-		}
-	} else if stat.Response {
-		resp, ok := i.(*http.Response)
-		if !ok {
-			logrus.Debug("Assert: i.(*http.Request) failed")
-			return
-		}
-		if !HTTPFilter(ctx, nil, resp) {
-			return
-		}
-		dumpdata, e = DumpResp(ctx, resp)
-		if e != nil {
-			logrus.Debugf("DumpResp: %s", e.Error())
-			return
-		}
-	} else {
-		logrus.Debug("Neither stat.Request nor stat.Response")
-		return
+		PrintDump(net, transport, dumpdata)
 	}
-	PrintDump(net, transport, dumpdata)
 }
 
 func PrintDump(net, transport gopacket.Flow, dumpBytes []byte) {
@@ -166,6 +168,16 @@ func NetworkFilter(ctx *cli.Context, net, transport gopacket.Flow) bool {
 }
 
 func HTTPFilter(ctx *cli.Context, req *http.Request, resp *http.Response) bool {
+	if req != nil && ( ctx.Bool("resp") || ctx.Int("status") != 0 ){
+		logrus.Debugf("Drop packet: mismatched packet type: request")
+		return false
+	}
+
+	if resp != nil && ( ctx.Bool("req") || ctx.String("method") != "") {
+		logrus.Debugf("Drop packet: mismatched packet type: response")
+		return false
+	}
+
 	reqMethod := ctx.String("method")
 	if req != nil && reqMethod != "" && reqMethod != req.Method {
 		logrus.Debugf("Drop packet: mismatched request method ,expected: %s ,got: %s", reqMethod, req.Method)

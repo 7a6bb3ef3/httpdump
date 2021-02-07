@@ -45,7 +45,10 @@ func ParseHeader(header string) (HeaderStat, error) {
 	stat := HeaderStat{}
 	lines := strings.Split(header, "\r\n")
 	// Only check prefix HTTP
-	if len(lines) > 0 && strings.HasPrefix(lines[0], "HTTP") {
+	if len(lines) == 0 {
+		return stat ,errors.New("no more lines")
+	}
+	if strings.HasPrefix(lines[0], "HTTP") {
 
 		stat.Response = true
 		if findTransferEncoding(lines) {
@@ -75,7 +78,7 @@ func ParseHeader(header string) (HeaderStat, error) {
 			return stat, fmt.Errorf("findContentLength: %w", e)
 		}
 		stat.ContentLength = l
-
+		return stat ,nil
 	}
 	return stat, errors.New("can not find 'Content-length' or 'Transfer-Encoding: chunked'")
 }
@@ -154,7 +157,6 @@ func ReadBytes(rd io.Reader, delim string) ([]byte, error) {
 		dst.WriteByte(buf[0])
 		if delim[c] == buf[0] {
 			c++
-			logrus.Debug(dst.String())
 		} else {
 			c = 0
 		}
@@ -166,16 +168,6 @@ func ReadBytes(rd io.Reader, delim string) ([]byte, error) {
 }
 
 func ReadChunked(rd io.Reader) ([]byte ,error){
-	//buf := make([]byte ,1)
-	//c := 0
-	//for {
-	//	n ,e := rd.Read(buf)
-	//	if e != nil {
-	//		panic(e)
-	//	}
-	//	c++
-	//	logrus.Debug(string(buf[:n]) ," " ,c)
-	//}
 	var chunkLen int64
 	dst := &bytes.Buffer{}
 	for {
@@ -183,6 +175,7 @@ func ReadChunked(rd io.Reader) ([]byte ,error){
 		if e != nil {
 			return nil ,fmt.Errorf("ReadBytes: %w" ,e)
 		}
+		logrus.Debugf("read chunk: %s %v" ,hexlen ,hexlen)
 		dst.Write(hexlen)
 		// end of chunk
 		if string(hexlen) == "0\r\n" {
@@ -192,10 +185,9 @@ func ReadChunked(rd io.Reader) ([]byte ,error){
 		tr := strings.TrimSpace(string(hexlen))
 		chunkLen ,e = strconv.ParseInt(tr ,16 ,64)
 		if e != nil {
-			return nil ,fmt.Errorf("strconv.ParseInt: %w" ,e)
+			return nil ,fmt.Errorf("%w" ,e)
 		}
-		logrus.Debugf("read chunk length: %d(%s)" ,chunkLen ,tr)
-		buf := make([]byte ,chunkLen)
+		buf := make([]byte ,chunkLen + 2)
 		_ ,e = io.ReadFull(rd ,buf)
 		if e != nil {
 			return nil ,fmt.Errorf("io.ReadFull: %w" ,e)
