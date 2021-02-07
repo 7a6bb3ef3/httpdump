@@ -13,6 +13,10 @@ func main() {
 	app.Description = "HTTP dump"
 	app.UsageText = "httpdump [command] [options]"
 	app.Usage = ":D"
+	app.Before = func(ctx *cli.Context) error {
+		logrus.SetLevel(logrus.ErrorLevel)
+		return nil
+	}
 	app.Commands = []*cli.Command{
 		{
 			Name:   "device",
@@ -93,6 +97,11 @@ func main() {
 					Name:    "promiscuous",
 					Aliases: []string{"p"},
 					Usage:   "Read data in promiscuous mode",
+				},
+				&cli.BoolFlag{
+					Name:    "verbose",
+					Aliases: []string{"v"},
+					Usage:   "Verbose mode",
 				},
 			},
 		},
