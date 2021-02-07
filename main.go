@@ -62,11 +62,6 @@ func main() {
 					Usage:   "Device name",
 					Value:   "eth0",
 				},
-				&cli.StringFlag{
-					Name:  "bpf",
-					Usage: "BPF filter",
-					Value: "tcp",
-				},
 				&cli.IntFlag{
 					Name:    "status",
 					Aliases: []string{"s"},
