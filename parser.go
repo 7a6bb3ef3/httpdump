@@ -146,6 +146,7 @@ func ReadBytes(rd io.Reader, delim string) ([]byte, error) {
 		return nil, errors.New("empty delim string")
 	}
 	dst := &bytes.Buffer{}
+	// TODO optimize
 	buf := make([]byte, 1)
 	c := 0
 	for {

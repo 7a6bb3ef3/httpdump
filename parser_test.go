@@ -93,12 +93,12 @@ func TestReadHTTPFromStream(t *testing.T) {
 func TestReadBytes(t *testing.T) {
 	test := "1234nynicg567890"
 	w := bytes.NewBufferString(test)
-	b, e := ReadBytes(w, "nynicg")
+	bufw := bufio.NewReader(w)
+	b, e := ReadBytes(bufw, "nynicg")
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Log(string(b))
-	t.Log(w.String())
 }
 
 func TestParseInt(t *testing.T) {
