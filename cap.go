@@ -130,7 +130,7 @@ func PrintDump(net, transport gopacket.Flow, dumpBytes []byte) {
 }
 
 func DumpResp(ignore bool, resp *http.Response) ([]byte, error) {
-	b, e := httputil.DumpResponse(resp, ignore)
+	b, e := httputil.DumpResponse(resp, !ignore)
 	if e != nil {
 		return nil, e
 	}
